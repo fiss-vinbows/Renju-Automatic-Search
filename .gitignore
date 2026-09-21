@@ -1,0 +1,11 @@
+# ユーザー固有の校正値（ウィンドウ位置）
+sender_config.json
+# ビルド成果物
+build/
+dist/
+*.spec
+__pycache__/
+*.pyc
+# 運転ログ
+*.jsonl
+debuglog*.txt
