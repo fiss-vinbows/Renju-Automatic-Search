@@ -2,7 +2,7 @@
 
 [日本語](#日本語) | [English](#english)
 
-![RAS GUI](assets/gui_en.png)
+![RAS GUI](assets/gui_ja.png)
 
 ---
 
@@ -18,6 +18,7 @@ YixinBoard が出力するデバッグログ（`debuglog.txt`）を読み取っ�
 - **2つの探索モード**：defend探索（`searchdefend`）と nbest探索（`nbest`）を交互に行う「nbest探索あり」、双方 `searchdefend` の「nbest探索なし」
 - **読み切りに基づく自動操作**：全候補が `-M` なら2手戻す、`+M` が出たら直前の相手の手を戻す、最善手以外が全て `-M` なら最善手を着手、四への応手は探索せず着手
 - **安全設計**：コマンドの受付確認・完了確認・再送、`putpos` の二重チェック、戻しすぎ検知、手動操作の検知（自動探索をオフ）
+- **ながら操作に配慮**：送信前にマウス・キーボードが止まるのを待ち（最大10秒）、送信の3秒前にはマウスポインタから波紋を出して知らせる（オン／オフ・色・秒数は設定可）
 - **GUI**：探索時間などの設定、自動探索モードのトグル、状態・ログ表示、日本語／英語切替
 - 追加ライブラリ不要（Python 標準ライブラリと Windows API のみ）
 
@@ -67,10 +68,12 @@ GUI から編集できます。主な項目：
 | `search_mode` | `nbest` | `nbest` または `defend` |
 | `language` | `ja` | `ja` または `en` |
 | `auto_start_search` | true | オン時に探索が止まっていれば `searchdefend` を送る |
+| `ripple_notify` / `ripple_color` / `ripple_lead_seconds` | true / `#63e6be` / 3 | 送信予告の波紋（オン／オフ・色・何秒前に出すか） |
+| `idle_wait_seconds` / `idle_wait_max_seconds` | 1.0 / 10 | 送信前に人の操作が止まるのを待つ秒数と、その上限 |
 
 ### 制限事項
 
-- コマンド送信の瞬間（約0.5秒）は YixinBoard が前面になり、マウスカーソルが動きます（GTK 製の YixinBoard は非アクティブ時のキー入力を受け付けないため）。送信後は元のウィンドウとカーソル位置に戻ります。**送信中はキーボードを触らないでください**（文字が混ざります）
+- コマンド送信の瞬間（約0.5秒）は YixinBoard が前面になり、マウスカーソルが動きます（GTK 製の YixinBoard は非アクティブ時のキー入力を受け付けないため）。送信後は元のウィンドウとカーソル位置に戻ります。送信は人の操作が止まった瞬間を待って行い、波紋で予告しますが、**波紋が出ている間はキーボードを触らないでください**（文字が混ざります）
 - `debuglog.txt` は探索中に増え続けます（約30MB/時間）。自動探索モードをオンにしたとき 100MB を超えていれば自動で切り詰めます
 - 四の判定は簡易実装で、連珠の禁手は考慮していません
 - YixinBoard 専用です
@@ -119,6 +122,7 @@ It reads YixinBoard's debug log (`debuglog.txt`) to see the search state, and se
 - **Two search modes** — "with nbest" alternates defend search (`searchdefend`) and nbest search (`nbest`); "defend only" uses `searchdefend` for both sides
 - **Automatic operations driven by proven results** — undo two moves when every move is `-M`, undo the opponent's last move when `+M` appears, play the only surviving move, answer a four without searching
 - **Safety** — command acknowledgement / completion checks and resend, double checks before `putpos`, undo-overshoot detection, manual-operation detection (turns automatic search off)
+- **Friendly to multitasking** — waits for mouse/keyboard to go idle before sending (up to 10 s) and shows a ripple around the pointer 3 s before a command (toggle, color and lead time are configurable)
 - **GUI** — search-time settings, on/off toggle, state and log view, Japanese/English
 - No third-party libraries (Python standard library + Windows API)
 
@@ -155,11 +159,11 @@ In "defend only" mode both sides use `searchdefend` with a single time setting.
 
 ### Settings (`monitor_config.json`)
 
-Editable from the GUI. Main keys: `a_limit_seconds`, `b_limit_seconds`, `defend_mode_seconds`, `stable_rounds`, `stable_seconds`, `op_timeout_seconds`, `nbest`, `search_mode` (`nbest`/`defend`), `language` (`ja`/`en`), `auto_start_search`.
+Editable from the GUI. Main keys: `a_limit_seconds`, `b_limit_seconds`, `defend_mode_seconds`, `stable_rounds`, `stable_seconds`, `op_timeout_seconds`, `nbest`, `search_mode` (`nbest`/`defend`), `language` (`ja`/`en`), `auto_start_search`, `ripple_notify` / `ripple_color` / `ripple_lead_seconds` (send warning), `idle_wait_seconds` / `idle_wait_max_seconds` (wait for user input to stop).
 
 ### Limitations
 
-- For about 0.5 s per command YixinBoard is brought to the front and the mouse moves (GTK apps ignore key input while inactive). Focus and cursor are restored afterwards. **Do not type while a command is being sent**
+- For about 0.5 s per command YixinBoard is brought to the front and the mouse moves (GTK apps ignore key input while inactive). Focus and cursor are restored afterwards. Commands are sent when your input pauses and are announced by the ripple; **do not type while the ripple is showing**
 - `debuglog.txt` grows (~30 MB/h). It is truncated automatically when automatic search is turned on and the file exceeds 100 MB
 - Four detection is simple and ignores Renju forbidden moves
 - YixinBoard only
