@@ -29,5 +29,15 @@
  "language": "ja",
  "_language": "表示言語 ja / en",
  "auto_start_search": true,
- "_auto_start_search": "オン時に探索が止まっていれば searchdefend を送って開始する"
+ "_auto_start_search": "オン時に探索が止まっていれば searchdefend を送って開始する",
+ "ripple_notify": true,
+ "_ripple_notify": "送信前にマウスポインタから波紋を出して知らせる",
+ "ripple_color": "#63e6be",
+ "_ripple_color": "波紋の色（#rrggbb）",
+ "ripple_lead_seconds": 3,
+ "_ripple_lead_seconds": "送信のこの秒数前に予告し、その間は送信を待つ",
+ "idle_wait_seconds": 1.0,
+ "_idle_wait_seconds": "マウス・キーボードがこの秒数止まってから送信する",
+ "idle_wait_max_seconds": 10,
+ "_idle_wait_max_seconds": "静止待ちの上限秒数。超えたら送信する"
 }

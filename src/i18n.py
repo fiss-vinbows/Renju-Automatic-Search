@@ -160,6 +160,15 @@ STRINGS = {
     "d_op_timeout": ("コマンド送信後、完了確認をこの秒数待って取れなければ停止", "Stop if a command is not confirmed within this many seconds"),
     "f_nbest": ("nbest 候補手数", "nbest candidates"),
     "d_nbest": ("nbest探索側で送る nbest の候補数", "Number of candidates for the nbest command"),
+    "f_ripple_lead": ("送信予告（秒）", "Send warning lead (s)"),
+    "d_ripple_lead": ("コマンド送信のこの秒数前に波紋で知らせ、その間は送信を待つ", "Ripple warning this many seconds before a command is sent; sending waits until then"),
+    "f_idle_wait": ("操作の静止待ち（秒）", "Input idle wait (s)"),
+    "d_idle_wait": ("マウス・キーボードがこの秒数止まってから送信する（最大10秒待つ）", "Send only after mouse/keyboard have been idle this long (waits up to 10 s)"),
+    "gui_ripple": ("波紋通知", "Ripple warning"),
+    "gui_ripple_color": ("波紋の色", "Ripple color"),
+    "gui_ripple_test": ("試す", "Test"),
+    "d_ripple": ("送信前にマウスポインタから波紋を出して知らせる。色の四角をクリックで変更", "Show ripples from the mouse pointer before sending. Click the swatch to change the color"),
+    "gui_ripple_fail": ("波紋表示に失敗: {err}", "Ripple overlay failed: {err}"),
 }
 
 

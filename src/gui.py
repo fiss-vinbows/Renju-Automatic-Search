@@ -16,7 +16,7 @@ import sys
 import threading
 import time
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, colorchooser
 
 import monitor
 import sender
@@ -50,6 +50,8 @@ SETTING_FIELDS = [
     ("stable_seconds", "f_stable_seconds", "d_stable_seconds", None),
     ("op_timeout_seconds", "f_op_timeout", "d_op_timeout", None),
     ("nbest", "f_nbest", "d_nbest", "nbest"),
+    ("ripple_lead_seconds", "f_ripple_lead", "d_ripple_lead", None),
+    ("idle_wait_seconds", "f_idle_wait", "d_idle_wait", None),
 ]
 MODES = [("nbest", "gui_mode_nbest"), ("defend", "gui_mode_defend")]
 LANGS = [("ja", "日本語"), ("en", "English")]
@@ -135,6 +137,78 @@ class ToggleSwitch(tk.Canvas):
             self.command(self.value)
 
 
+class RippleOverlay:
+    """
+    マウスポインタから波紋を出して「もうすぐコマンドを送る」ことを知らせる。
+    最前面・枠なし・背景透過・クリック透過のウィンドウをポインタに追従させ、
+    指定秒数のあいだ広がる輪を描く。
+    """
+    SIZE = 260
+
+    def __init__(self, root, color, seconds, scale=1.0):
+        self.root = root
+        self.color = color
+        self.seconds = max(0.5, float(seconds))
+        self.k = scale
+        self.size = int(self.SIZE * scale)
+        self.key = "#010203"  # 透過色
+        self.win = tk.Toplevel(root)
+        self.win.overrideredirect(True)
+        self.win.attributes("-topmost", True)
+        try:
+            self.win.attributes("-transparentcolor", self.key)
+        except tk.TclError:
+            pass
+        self.canvas = tk.Canvas(self.win, width=self.size, height=self.size, bg=self.key, highlightthickness=0)
+        self.canvas.pack()
+        self.win.update_idletasks()
+        self._click_through()
+        self.t0 = time.monotonic()
+        self._tick()
+
+    def _click_through(self):
+        # WS_EX_LAYERED | WS_EX_TRANSPARENT でマウス操作をすり抜けさせ、ツールウィンドウ扱いでタスクバーに出さない
+        try:
+            import ctypes
+            GWL_EXSTYLE = -20
+            WS_EX_LAYERED, WS_EX_TRANSPARENT, WS_EX_TOOLWINDOW, WS_EX_NOACTIVATE = 0x80000, 0x20, 0x80, 0x08000000
+            hwnd = ctypes.windll.user32.GetParent(self.win.winfo_id()) or self.win.winfo_id()
+            style = ctypes.windll.user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
+            ctypes.windll.user32.SetWindowLongW(hwnd, GWL_EXSTYLE,
+                                                style | WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE)
+        except Exception:
+            pass
+
+    def _tick(self):
+        el = time.monotonic() - self.t0
+        if el >= self.seconds or not self.win.winfo_exists():
+            try:
+                self.win.destroy()
+            except tk.TclError:
+                pass
+            return
+        try:
+            import ctypes
+            import ctypes.wintypes as wt
+            pt = wt.POINT()
+            ctypes.windll.user32.GetCursorPos(ctypes.byref(pt))
+            x, y = pt.x, pt.y
+        except Exception:
+            x, y = self.win.winfo_pointerx(), self.win.winfo_pointery()
+        half = self.size // 2
+        self.win.geometry(f"{self.size}x{self.size}+{x - half}+{y - half}")
+        self.canvas.delete("all")
+        period = 1.0  # 1秒周期で輪が3本
+        for i in range(3):
+            ph = ((el + i * period / 3) % period) / period  # 0→1
+            r = (8 + (half - 12) * ph)
+            width = max(1, int(round((4 - 3 * ph) * self.k)))
+            self.canvas.create_oval(half - r, half - r, half + r, half + r, outline=self.color, width=width)
+        self.canvas.create_oval(half - 4 * self.k, half - 4 * self.k, half + 4 * self.k, half + 4 * self.k,
+                                fill=self.color, outline="")
+        self.win.after(33, self._tick)
+
+
 def enable_dpi_awareness():
     """高DPI環境でぼやけないよう、プロセスを DPI 対応にする（Windows 8.1 以降）。"""
     try:
@@ -157,8 +231,8 @@ class App(tk.Tk):
             self._scale = 1.0
         self.title(tr("app_title"))
         self.configure(bg=BG)
-        self.geometry(f"{int(760 * self._scale)}x{int(640 * self._scale)}")
-        self.minsize(int(640 * self._scale), int(520 * self._scale))
+        self.geometry(f"{int(780 * self._scale)}x{int(760 * self._scale)}")
+        self.minsize(int(700 * self._scale), int(700 * self._scale))
         try:
             self.iconbitmap(os.path.join(os.path.dirname(DEFAULT_LOG), "icon.ico"))
         except Exception:
@@ -216,9 +290,25 @@ class App(tk.Tk):
                           highlightthickness=1, highlightbackground=LINE, command=lambda k=key: self._set_mode(k))
             b.pack(side="left", padx=(0, 6))
             self.mode_btns[key] = b
+        # 波紋通知：オン／オフ・色
+        ripf = tk.Frame(settings, bg=BG)
+        ripf.grid(row=98, column=0, columnspan=2, sticky="w", padx=12, pady=(10, 0))
+        tk.Label(ripf, text=tr("gui_ripple"), bg=BG, fg=TEXT, font=FONT).pack(side="left", padx=(0, 10))
+        self.ripple_toggle = ToggleSwitch(ripf, command=self._on_ripple_toggle, bg=BG, scale=self._scale)
+        self.ripple_toggle.pack(side="left", padx=(0, 12))
+        self.ripple_toggle.value = bool(self.cfg.get("ripple_notify", True))
+        self.ripple_toggle.t = 1.0 if self.ripple_toggle.value else 0.0
+        self.ripple_toggle._draw()
+        self.ripple_swatch = tk.Label(ripf, text="      ", bg=self.cfg.get("ripple_color", ACCENT), relief="flat",
+                                      highlightthickness=1, highlightbackground=LINE, cursor="hand2")
+        self.ripple_swatch.pack(side="left", padx=(0, 6))
+        self.ripple_swatch.bind("<Button-1>", lambda e: self._pick_ripple_color())
+        self._button(ripf, tr("gui_ripple_test"), lambda: self._show_ripple()).pack(side="left")
+        tk.Label(settings, text=tr("d_ripple"), bg=BG, fg=MUTED, font=("Yu Gothic UI", 8), anchor="w",
+                 wraplength=int(300 * self._scale), justify="left").grid(row=99, column=0, columnspan=2, sticky="w", padx=12)
         # 言語切替
         langf = tk.Frame(settings, bg=BG)
-        langf.grid(row=99, column=0, columnspan=2, sticky="w", padx=12, pady=(4, 10))
+        langf.grid(row=100, column=0, columnspan=2, sticky="w", padx=12, pady=(8, 10))
         tk.Label(langf, text=tr("gui_language"), bg=BG, fg=MUTED, font=("Yu Gothic UI", 8)).pack(side="left", padx=(0, 8))
         self.lang_btns = {}
         for key, label in LANGS:
@@ -234,12 +324,12 @@ class App(tk.Tk):
             r = 1 + i * 2
             label, desc = tr(label_key), tr(desc_key)
             lab = tk.Label(settings, text=label, bg=BG, fg=TEXT, font=FONT, anchor="w")
-            lab.grid(row=r, column=0, sticky="w", padx=12, pady=(10, 0))
+            lab.grid(row=r, column=0, sticky="w", padx=12, pady=(7, 0))
             var = tk.StringVar(value=str(self.cfg.get(key, "")))
             ent = tk.Entry(settings, textvariable=var, width=10, bg=CELL, fg=TEXT, insertbackground=TEXT,
                            relief="flat", font=FONT, justify="right", highlightthickness=1, highlightbackground=LINE,
                            highlightcolor=ACCENT)
-            ent.grid(row=r, column=1, sticky="e", padx=12, pady=(10, 0))
+            ent.grid(row=r, column=1, sticky="e", padx=12, pady=(7, 0))
             dl = tk.Label(settings, text=desc, bg=BG, fg=MUTED, font=("Yu Gothic UI", 8), anchor="w",
                           wraplength=int(300 * self._scale), justify="left")
             dl.grid(row=r + 1, column=0, columnspan=2, sticky="w", padx=12)
@@ -288,6 +378,19 @@ class App(tk.Tk):
         return b
 
     # ---------- 設定 ----------
+    def _on_ripple_toggle(self, on):
+        self.cfg["ripple_notify"] = bool(on)
+        self._write_config(self.cfg)
+        if self.mon:
+            self.mon.cfg["ripple_notify"] = bool(on)
+
+    def _pick_ripple_color(self):
+        rgb, hexcolor = colorchooser.askcolor(color=self.cfg.get("ripple_color", ACCENT), title=tr("gui_ripple_color"))
+        if hexcolor:
+            self.cfg["ripple_color"] = hexcolor
+            self.ripple_swatch.configure(bg=hexcolor)
+            self._write_config(self.cfg)
+
     def _set_language(self, key):
         if getattr(self, "toggle", None) and self.toggle.value:
             messagebox.showinfo(tr("gui_language"), tr("gui_mode_locked"))
@@ -399,7 +502,8 @@ class App(tk.Tk):
         record = os.path.join(os.path.dirname(DEFAULT_LOG), "output", "monitor_log.jsonl")
         os.makedirs(os.path.dirname(record), exist_ok=True)
         self.stop_event = threading.Event()
-        self.mon = monitor.Monitor(self.cfg, record, sender=snd, on_log=self._on_log, on_pause=self._on_pause)
+        self.mon = monitor.Monitor(self.cfg, record, sender=snd, on_log=self._on_log, on_pause=self._on_pause,
+                                   on_notify=self._on_notify)
         initial = monitor.detect_initial_state(DEFAULT_LOG)
         self.thread = threading.Thread(target=self._run_thread, args=(initial,), daemon=True)
         self.thread.start()
@@ -437,6 +541,15 @@ class App(tk.Tk):
         # 監視スレッドから呼ばれる。GUI 操作はメインスレッドで行う
         self.log_queue.put((None, "pause", reason))
 
+    def _on_notify(self, seconds):
+        self.log_queue.put((None, "ripple", seconds))
+
+    def _show_ripple(self, seconds=None):
+        try:
+            RippleOverlay(self, self.cfg.get("ripple_color", ACCENT), seconds or self.cfg.get("ripple_lead_seconds", 3), self._scale)
+        except Exception as e:
+            self._append(tr("gui_ripple_fail", err=e), "warn")
+
     # ---------- 定期更新 ----------
     def _poll(self):
         try:
@@ -445,6 +558,9 @@ class App(tk.Tk):
                 if tag == "pause":
                     self.toggle.set(False)
                     self._stop(extra)
+                    continue
+                if tag == "ripple":
+                    self._show_ripple(extra)
                     continue
                 self._append(text, tag)
         except queue.Empty:

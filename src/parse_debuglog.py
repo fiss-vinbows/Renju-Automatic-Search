@@ -32,7 +32,7 @@ def app_dir():
 def rapfi_dir():
     """
     Rapfi（debuglog.txt）のあるフォルダ。app_dir の親フォルダ。
-    exe は Rapfi フォルダ直下のサブフォルダ（例: RAS フォルダ）に置く。開発時は src フォルダが同じ役割。
+    exe は Rapfi フォルダ直下のサブフォルダ（例: RapfiAuto フォルダ）に置く。開発時は prototype フォルダが同じ役割。
     """
     return os.path.dirname(app_dir())
 

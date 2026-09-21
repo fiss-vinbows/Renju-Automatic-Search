@@ -29,7 +29,9 @@ def load_monitor_config():
     defaults = {"a_limit_seconds": 3600, "b_limit_seconds": 1800, "stable_rounds": 3, "stable_seconds": 10,
                 "op_timeout_seconds": 20, "nbest": 2, "undo_offset_branch1": -2, "undo_offset_branch3": -1,
                 "undo_offset_branch4": None, "poll_seconds": 0.2, "status_interval_seconds": 30,
-                "search_mode": "nbest", "defend_mode_seconds": 3600, "language": "ja", "auto_start_search": True}
+                "search_mode": "nbest", "defend_mode_seconds": 3600, "language": "ja", "auto_start_search": True,
+                "ripple_notify": True, "ripple_color": "#63e6be", "ripple_lead_seconds": 3,
+                "idle_wait_seconds": 1.0, "idle_wait_max_seconds": 10}
     if os.path.exists(CONFIG_PATH):
         with open(CONFIG_PATH, encoding="utf-8") as f:
             for k, v in json.load(f).items():
@@ -40,10 +42,21 @@ def load_monitor_config():
 
 
 class Monitor:
-    def __init__(self, cfg, record_path, sender=None, on_log=None, on_pause=None):
+    def __init__(self, cfg, record_path, sender=None, on_log=None, on_pause=None, on_notify=None):
         self.cfg = cfg
         self.on_log = on_log      # GUI 等へログ行を渡すコールバック (text, rec)
         self.on_pause = on_pause  # 異常一時停止時のコールバック (reason)
+        self.on_notify = on_notify  # 送信予告（波紋）のコールバック (seconds)
+        # 送信ゲート：予告からの待ち時間と、人の操作が止まるのを待つ
+        self.lead = float(cfg.get("ripple_lead_seconds", 3)) if cfg.get("ripple_notify", True) else 0.0
+        self.idle_required = float(cfg.get("idle_wait_seconds", 1.0))
+        self.idle_wait_max = float(cfg.get("idle_wait_max_seconds", 10))
+        self.hold_until = 0.0        # この単調時刻まで送信を保留
+        self.gate_opened_at = None   # 保留が解けて送信可能になった時刻（最大待ち時間の起点）
+        self.last_notify_at = None
+        self.notified_state = None   # 残り時間の予告を出した状態（1状態につき1回）
+        self.deferred_send = None    # 保留中の送信 ("cmd" または ("undo", target))
+        self.own_input_tick = 0      # 自分が SendInput した時刻（GetTickCount）
         self.mode = cfg.get("search_mode", "nbest")   # "nbest"：defend探索側 / nbest探索側 を交互、"defend"：双方 searchdefend
         if self.mode == "nbest":
             self.a_limit = cfg["a_limit_seconds"]
@@ -319,6 +332,11 @@ class Monitor:
         limit = self.a_limit if state == "A_MONITOR" else self.b_limit
         is_nbest_side = self.mode == "nbest" and state == "B_MONITOR"
 
+        # 期限の lead 秒前に予告（波紋）を出す（1状態につき1回）
+        if self.lead > 0 and self.notified_state != (state, self.state_since) and limit - self.elapsed() <= self.lead:
+            self.notified_state = (state, self.state_since)
+            self.notify()
+
         # 期限判定を先に行う（期限ちょうどは時間側を優先）
         if self.elapsed() >= limit:
             ints, losses, wins, unknown = self.classify()
@@ -382,6 +400,83 @@ class Monitor:
             return
         self.rounds_ok = 0
 
+    # ---- 送信ゲート（予告・操作待ち） ----
+    def notify(self):
+        """波紋通知を出す（GUI が無ければ何もしない）。"""
+        self.last_notify_at = time.monotonic()
+        if self.on_notify and self.cfg.get("ripple_notify", True):
+            try:
+                self.on_notify(self.lead)
+            except Exception:
+                pass
+
+    def open_gate(self):
+        """操作の開始時に呼ぶ。予告（波紋）を出してから lead 秒間は送信を保留する。直前に予告済みならその分だけ待つ。"""
+        now = time.monotonic()
+        if self.lead <= 0:
+            self.hold_until = now
+        elif self.last_notify_at is not None and now - self.last_notify_at < self.lead:
+            self.hold_until = self.last_notify_at + self.lead  # 残り時間の予告がすでに出ている
+        else:
+            self.notify()
+            self.hold_until = now + self.lead
+        self.gate_opened_at = None
+
+    @staticmethod
+    def _last_input_tick():
+        """Windows の最後のユーザー入力時刻（GetTickCount 基準、ミリ秒）。取れなければ None。"""
+        try:
+            import ctypes
+            class LASTINPUTINFO(ctypes.Structure):
+                _fields_ = [("cbSize", ctypes.c_uint), ("dwTime", ctypes.c_uint)]
+            info = LASTINPUTINFO()
+            info.cbSize = ctypes.sizeof(LASTINPUTINFO)
+            if ctypes.windll.user32.GetLastInputInfo(ctypes.byref(info)):
+                return info.dwTime
+        except Exception:
+            pass
+        return None
+
+    def user_idle_seconds(self):
+        """人の最後の操作からの経過秒。自分が送った入力は除外する。"""
+        last = self._last_input_tick()
+        if last is None:
+            return 1e9
+        import ctypes
+        now_tick = ctypes.windll.kernel32.GetTickCount()
+        if self.own_input_tick and last <= self.own_input_tick + 600:
+            # 最後の入力は自分の SendInput（送信直後 0.6 秒以内）なので、人は操作していないとみなす
+            return 1e9
+        return max(0.0, (now_tick - last) / 1000.0)
+
+    def can_send_now(self):
+        """予告の待ち時間が過ぎ、かつ人の操作が止まっているか（最大待ち時間を超えたら強制的に可）。"""
+        now = time.monotonic()
+        if now < self.hold_until:
+            return False
+        if self.gate_opened_at is None:
+            self.gate_opened_at = now
+        if now - self.gate_opened_at >= self.idle_wait_max:
+            return True
+        return self.user_idle_seconds() >= self.idle_required
+
+    def _do_send(self, cmd):
+        """実際に送信する（ゲート通過後）。"""
+        import ctypes
+        self.sender.send(cmd, restore_focus=False)
+        self.own_input_tick = ctypes.windll.kernel32.GetTickCount()
+
+    def flush_deferred(self):
+        """保留していた送信を、ゲートが開いていれば実行する（tick から呼ぶ）。"""
+        if not self.deferred_send or not self.can_send_now():
+            return
+        item = self.deferred_send
+        self.deferred_send = None
+        if item == "current":
+            self.send_current()
+        else:
+            self.send_undo(item[1])
+
     # ---- 操作 ----
     def plan(self, code, title, commands, expect, next_state):
         """commands[i] と expect[i] は対応する（undo_to のコマンドは "undo one" を必要回数送る）。"""
@@ -404,6 +499,7 @@ class Monitor:
             print(f"    > {c}")
         print("=" * 70)
         self.log(tr("kind_plan"), " / ".join(c if len(c) < 60 else c[:57] + "..." for c in commands), commands=commands, code=code)
+        self.open_gate()
         self.send_current()
 
     def current_command(self):
@@ -418,9 +514,13 @@ class Monitor:
             return
         if self.pending["steps"][0][1][0] == "undo_to":
             return
+        if not self.can_send_now():
+            self.deferred_send = "current"  # 予告待ち／人の操作待ち。tick で再試行
+            return
         cmd = self.current_command()
         try:
-            self.sender.send(cmd, restore_focus=False)
+            self._do_send(cmd)
+            self.step_sent_at = time.monotonic()
             self.sent_cmd, self.resent, self.flush_count = cmd, False, 0
             self.log(tr("kind_send"), cmd if len(cmd) < 60 else cmd[:57] + "...")
         except Exception as e:
@@ -435,10 +535,13 @@ class Monitor:
             return
         if len(self.moves) <= target:
             return
+        if not self.can_send_now():
+            self.deferred_send = ("undo", target)
+            return
         self.undo_inflight = True
         self.step_sent_at = time.monotonic()
         try:
-            self.sender.send("undo one", restore_focus=False)
+            self._do_send("undo one")
             self.sent_cmd, self.resent, self.flush_count = "undo one", False, 0
             self.log(tr("kind_send"), tr("msg_send_undo", cur=len(self.moves), target=target))
         except Exception as e:
@@ -455,6 +558,7 @@ class Monitor:
         self.pending = None
         self.step_sent_at = None
         self.sent_cmd = None
+        self.deferred_send = None
         if self.sender:
             try:
                 self.sender.restore_focus()
@@ -476,7 +580,7 @@ class Monitor:
         self.flush_count += 1
         self.log(tr("kind_flush"), tr("msg_flush", n=self.flush_count))
         try:
-            self.sender.send(self.FLUSH_PING, restore_focus=False)
+            self._do_send(self.FLUSH_PING)
         except Exception as e:
             self.log(tr("kind_warning"), tr("msg_flush_fail", err=e))
 
@@ -499,7 +603,7 @@ class Monitor:
         self.resent = True
         self.log(tr("kind_resend"), tr("msg_resend", cmd=cmd if len(cmd) < 40 else cmd[:37] + "..."))
         try:
-            self.sender.send(cmd, restore_focus=False)
+            self._do_send(cmd)
         except Exception as e:
             self.pause(tr("msg_resend_fail", cmd=cmd[:30], err=e))
 
@@ -515,6 +619,9 @@ class Monitor:
         if rec["type"] == "command" and self.sent_cmd and rec["command"] == self.sent_cmd:
             self.sent_cmd = None  # 受付確認が取れた
         if rec["type"] == "tick":
+            self.flush_deferred()
+            if self.deferred_send:
+                return
             self.check_ack_resend()
             self.check_timeout()
             if kind == "undo_to" and self.state == "OPERATING":
