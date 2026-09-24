@@ -177,7 +177,7 @@ nbest探索なしモードでは、`+M`を検出した場合を「直前の相�
 YixinBoardの仕様で、停止時に読んでいた最善手が盤面に打たれます。RASはこれを前提に「戻る回数」を目標手数で制御し、着手が必要な場面では`putpos`で局面を丸ごと置き換えるため問題ありません。
 
 ### Q. 離席中に止まっていました。どうすれば原因が分かりますか？
-GUIのログ欄と`output\monitor_log.jsonl`（JSON Lines形式の判定ログ）に、停止理由と直前の候補手一覧が残ります。
+GUIのログ欄と、YixinBoardフォルダ内の`output\monitor_log.jsonl`（JSON Lines形式の判定ログ）に、停止理由と直前の候補手一覧が残ります。
 
 ### Q. 他の五目並べGUI（Piskvorkなど）でも使えますか？
 使えません。YixinBoardの`debuglog.txt`の形式とコマンド入力欄に依存しています。

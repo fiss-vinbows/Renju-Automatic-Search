@@ -108,6 +108,10 @@ build.bat
 | `docs/design_ja.txt` | 設計メモ（日本語） |
 | `docs/article_ja.md` | 解説記事（日本語） |
 
+### ライセンス
+
+MIT License（[LICENSE](LICENSE)）。本ツールは Rapfi / YixinBoard とは独立した第三者製の補助ツールで、それらのソースコードやバイナリは含みません。
+
 ---
 
 ## English
@@ -177,3 +181,7 @@ python ras.py --console  # console mode
 ```
 
 Build the exe with PyInstaller: `pip install pyinstaller` then `build.bat` → `dist\RAS\RAS.exe`.
+
+### License
+
+MIT License (see [LICENSE](LICENSE)). RAS is an independent third-party helper for Rapfi / YixinBoard and contains none of their source code or binaries.
