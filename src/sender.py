@@ -25,12 +25,28 @@ import time
 
 user32 = ctypes.windll.user32
 kernel32 = ctypes.windll.kernel32
+gdi32 = ctypes.windll.gdi32
 
-# 座標は常に物理ピクセルで扱う（高DPI環境で GUI 側と食い違わないよう、このモジュールの読み込み時に DPI 対応にする）
-try:
-    ctypes.windll.shcore.SetProcessDpiAwareness(1)
-except Exception:
-    pass
+def enable_dpi_awareness():
+    """
+    座標を常に物理ピクセルで扱うため、プロセスを「モニタ単位」の DPI 対応にする。
+    「システム単位」（旧実装）だと、異なる拡大率のモニタに置かれたウィンドウの座標が
+    実際の画面位置とずれ、クリックが別の場所に飛ぶ（2026-09-26 に多モニタ環境で確認）。
+    """
+    try:  # Windows 10 1703 以降：モニタ単位 v2
+        if ctypes.windll.user32.SetProcessDpiAwarenessContext(ctypes.c_void_p(-4)):
+            return
+    except Exception:
+        pass
+    for level in (2, 1):  # 2 = モニタ単位, 1 = システム単位
+        try:
+            if ctypes.windll.shcore.SetProcessDpiAwareness(level) == 0:
+                return
+        except Exception:
+            pass
+
+
+enable_dpi_awareness()
 
 
 def system_dpi_scale():
@@ -177,6 +193,113 @@ def bring_to_front(hwnd, timeout=2.0):
     return user32.GetForegroundWindow() == hwnd
 
 
+# ---- ウィンドウの画像取得とコマンド入力欄の自動検出 ----
+class BITMAPINFOHEADER(ctypes.Structure):
+    _fields_ = [("biSize", wt.DWORD), ("biWidth", wt.LONG), ("biHeight", wt.LONG), ("biPlanes", wt.WORD),
+                ("biBitCount", wt.WORD), ("biCompression", wt.DWORD), ("biSizeImage", wt.DWORD),
+                ("biXPelsPerMeter", wt.LONG), ("biYPelsPerMeter", wt.LONG),
+                ("biClrUsed", wt.DWORD), ("biClrImportant", wt.DWORD)]
+
+
+class BITMAPINFO(ctypes.Structure):
+    _fields_ = [("bmiHeader", BITMAPINFOHEADER), ("bmiColors", wt.DWORD * 3)]
+
+
+def capture_window(hwnd):
+    """
+    Yixin のウィンドウ領域を画面から取り込み、(画素バイト列, 幅, 高さ) を返す。
+    画素は 32bit（BGRA）で、(x, y) の色は buf[(y*W+x)*4 + 2/1/0] が R/G/B。
+    ウィンドウが他のウィンドウに隠れていると別の内容が写るため、前面化してから呼ぶこと。
+    """
+    l, t, r, b = window_rect(hwnd)
+    w, h = r - l, b - t
+    if w <= 0 or h <= 0:
+        return None, 0, 0
+    hdc = user32.GetDC(0)
+    mem = gdi32.CreateCompatibleDC(hdc)
+    bmp = gdi32.CreateCompatibleBitmap(hdc, w, h)
+    try:
+        gdi32.SelectObject(mem, bmp)
+        gdi32.BitBlt(mem, 0, 0, w, h, hdc, l, t, 0x00CC0020)  # SRCCOPY
+        info = BITMAPINFO()
+        info.bmiHeader.biSize = ctypes.sizeof(BITMAPINFOHEADER)
+        info.bmiHeader.biWidth = w
+        info.bmiHeader.biHeight = -h  # 上から下へ
+        info.bmiHeader.biPlanes = 1
+        info.bmiHeader.biBitCount = 32
+        buf = (ctypes.c_ubyte * (w * h * 4))()
+        if not gdi32.GetDIBits(mem, bmp, 0, h, buf, ctypes.byref(info), 0):
+            return None, 0, 0
+        return buf, w, h
+    finally:
+        user32.ReleaseDC(0, hdc)
+        gdi32.DeleteObject(bmp)
+        gdi32.DeleteDC(mem)
+
+
+def find_input_box(buf, w, h):
+    """
+    ウィンドウ画像からコマンド入力欄（ログ欄の下のテキスト欄）の矩形を探し、
+    (左, 上, 右, 下) をウィンドウ相対座標で返す。見つからなければ None。
+
+    入力欄は「ウィンドウの右下にあり、周囲のパネルとは異なる一様な色で塗られた横長の矩形」である。
+    色そのものはテーマ（ダーク／ライト）で変わるため、色を決め打ちせず
+    「右端近くの列を下から上へたどり、色が変わる境目」で矩形を切り出す。
+    """
+    if not buf or w < 200 or h < 200:
+        return None
+
+    def rgb(x, y):
+        i = (y * w + x) * 4
+        return buf[i + 2], buf[i + 1], buf[i]
+
+    def same(c1, c2, tol=3):
+        # ログ欄と入力欄は同じ塗り色で、間の区切り（数 px）だけがわずかに明るい。
+        # 許容差を大きくするとこの区切りを跨いで両者がつながってしまうため、小さく取る。
+        return abs(c1[0] - c2[0]) <= tol and abs(c1[1] - c2[1]) <= tol and abs(c1[2] - c2[2]) <= tol
+
+    col = w - 20  # 右端の枠を避けた列
+    y = h - 10    # 下端の枠を避けた位置から上へ
+    runs = []     # (下端y, 上端y, 色) を下から順に
+    while y > h // 2 and len(runs) < 6:
+        c = rgb(col, y)
+        y2 = y
+        while y2 > 0 and same(rgb(col, y2 - 1), c):
+            y2 -= 1
+        if y - y2 >= 3:
+            runs.append((y, y2, c))
+        y = y2 - 1
+
+    for bottom, top, color in runs:
+        height = bottom - top + 1
+        if not (20 <= height <= max(60, h // 3)):
+            continue
+        # 文字の無い行で横幅を測る（中央付近は入力文字やプレースホルダで途切れるため下寄りを見る）
+        mid = bottom - max(3, height // 6)
+        # 同じ色が横にどこまで続くか（左へ）を見て、横長の矩形であることを確かめる
+        left = col
+        while left > 0 and same(rgb(left - 1, mid), color):
+            left -= 1
+        right = col
+        while right < w - 1 and same(rgb(right + 1, mid), color):
+            right += 1
+        # 入力欄はウィンドウの右端に沿って置かれる。右端から離れた矩形は別の部品とみなす
+        if right - left >= 150 and right >= w - 60:
+            return left, top, right, bottom
+    return None
+
+
+def input_box_center(hwnd):
+    """入力欄を自動検出し、クリックすべき画面座標 (x, y) を返す。検出できなければ None。"""
+    buf, w, h = capture_window(hwnd)
+    box = find_input_box(buf, w, h)
+    if not box:
+        return None
+    l, t, _, _ = window_rect(hwnd)
+    bl, bt, br, bb = box
+    return l + (bl + br) // 2, t + (bt + bb) // 2
+
+
 # ---- 校正値 ----
 def load_config():
     if not os.path.exists(CONFIG_PATH):
@@ -212,18 +335,48 @@ def calibrate(wait=5):
     l, t, r, b = window_rect(hwnd)
     if not (l <= x <= r and t <= y <= b):
         raise RuntimeError("マウスが Yixin のウィンドウ外にあります。やり直してください。")
-    cfg = {"offset_x": x - l, "offset_y": y - t, "window_w": r - l, "window_h": b - t, "dpi_aware": True,
-           "note": "コマンド入力欄のウィンドウ左上からの相対位置（物理ピクセル）"}
+    cfg = {"offset_x": x - l, "offset_y": y - t, "offset_right": r - x, "offset_bottom": b - y,
+           "window_w": r - l, "window_h": b - t, "dpi_aware": True,
+           "note": "コマンド入力欄の位置（物理ピクセル）。offset_right/offset_bottom はウィンドウ右下からの距離"}
     save_config(cfg)
     print(f"保存しました: {CONFIG_PATH}  相対位置=({cfg['offset_x']}, {cfg['offset_y']})  ウィンドウ={cfg['window_w']}x{cfg['window_h']}")
 
 
 # ---- 送信 ----
 class Sender:
-    def __init__(self, cfg=None):
+    def __init__(self, cfg=None, require_config=False):
         self.cfg = cfg or load_config()
-        if not self.cfg:
-            raise RuntimeError("校正値がありません。先に `python sender.py --calibrate` を実行してください。")
+        self._box_rect = None
+        self._box_point = None
+        if not self.cfg and require_config and not find_yixin_window():
+            raise RuntimeError("Yixin が見つからず、校正値もありません。Yixin を起動してください。")
+
+    def input_point(self, hwnd):
+        """
+        入力欄をクリックする画面座標を返す。
+        まずウィンドウ画像から自動検出し（ウィンドウを動かしてもサイズを変えても追従する）、
+        検出できない場合は校正値をウィンドウ右下からの距離として当てはめる。
+        検出結果はウィンドウの位置・サイズが変わるまで使い回す。
+        """
+        rect = window_rect(hwnd)
+        l, t, r, b = rect
+        if getattr(self, "_box_rect", None) == rect and getattr(self, "_box_point", None):
+            return self._box_point
+        pt = input_box_center(hwnd)
+        if pt:
+            self._box_rect, self._box_point = rect, pt
+            return pt
+        cfg = self.cfg
+        if cfg is None:
+            raise RuntimeError("入力欄を自動検出できず、校正値もありません。GUI の「入力欄を校正」を実行してください。")
+        # 入力欄はウィンドウの右下に固定されているため、右下からの距離を優先して当てはめる
+        if "offset_right" in cfg and "offset_bottom" in cfg:
+            x, y = r - cfg["offset_right"], b - cfg["offset_bottom"]
+        else:
+            x, y = l + cfg["offset_x"], t + cfg["offset_y"]
+        x = min(max(x, l + 5), r - 5)
+        y = min(max(y, t + 5), b - 5)
+        return x, y
 
     def restore_focus(self):
         """send(restore_focus=False) で保留した「前面ウィンドウとカーソル位置の復元」を行う。"""
@@ -259,10 +412,7 @@ class Sender:
         hwnd, title = win
         if not bring_to_front(hwnd):
             raise RuntimeError("Yixin を前面にできませんでした。")
-        l, t, r, b = window_rect(hwnd)
-        if (r - l, b - t) != (self.cfg["window_w"], self.cfg["window_h"]):
-            raise RuntimeError(f"ウィンドウサイズが校正時と異なります（校正 {self.cfg['window_w']}x{self.cfg['window_h']} / 現在 {r-l}x{b-t}）。--calibrate をやり直してください。")
-        x, y = l + self.cfg["offset_x"], t + self.cfg["offset_y"]
+        x, y = self.input_point(hwnd)
 
         # 入力欄をクリックしてフォーカスを与える
         user32.SetCursorPos(x, y)
@@ -311,6 +461,12 @@ def main():
     win = find_yixin_window()
     print("ウィンドウ:", f"{win[1]} (hwnd={win[0]}) rect={window_rect(win[0])}" if win else "見つかりません")
     print("校正値:", load_config())
+    if win:
+        bring_to_front(win[0])
+        time.sleep(0.4)
+        buf, w, h = capture_window(win[0])
+        box = find_input_box(buf, w, h)
+        print("入力欄の自動検出:", f"{box}（ウィンドウ相対）" if box else "検出できませんでした")
     if args.send:
         Sender().send(args.send)
         print(f"送信しました: {args.send}")

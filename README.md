@@ -17,6 +17,7 @@ YixinBoard が出力するデバッグログ（`debuglog.txt`）を読み取っ�
 - **ログ読み取り方式**：盤面の画像認識ではなく `debuglog.txt` を直接読むため、判定が正確
 - **2つの探索モード**：defend探索（`searchdefend`）と nbest探索（`nbest`）を交互に行う「nbest探索あり」、双方 `searchdefend` の「nbest探索なし」
 - **読み切りに基づく自動操作**：全候補が `-M` なら2手戻す、`+M` が出たら直前の相手の手を戻す、最善手以外が全て `-M` なら最善手を着手、四への応手は探索せず着手
+- **入力欄の自動検出**：コマンド入力欄の位置をウィンドウ画像から自動で見つけるため校正が不要。ウィンドウの移動・別モニタへの移動（拡大率が違っても）に追従
 - **安全設計**：コマンドの受付確認・完了確認・再送、`putpos` の二重チェック、戻しすぎ検知、手動操作の検知（自動探索をオフ）
 - **ながら操作に配慮**：送信前にマウス・キーボードが止まるのを待ち（最大10秒）、送信の3秒前にはマウスポインタから波紋を出して知らせる（オン／オフ・色・秒数は設定可）
 - **GUI**：探索時間などの設定、自動探索モードのトグル、状態・ログ表示、日本語／英語切替
@@ -33,8 +34,7 @@ YixinBoard が出力するデバッグログ（`debuglog.txt`）を読み取っ�
 1. YixinBoard を終了した状態で `settings.txt` を開き、`;record debug log` の行の値を `0` から `1` に変更する
 2. YixinBoard のフォルダ直下に `RAS` フォルダを作り、`RAS.exe` と `monitor_config.json` を置く（ソースから動かす場合は `src` フォルダをそこに置き `python ras.py`）
 3. YixinBoard を起動し、`RAS.exe` を起動する
-4. 初回のみ「入力欄を校正」を押し、5秒以内にマウスカーソルを YixinBoard のコマンド入力欄（ログ欄の下のテキスト欄）の上に置く。ウィンドウサイズを変えたら再校正
-5. 探索モードと探索時間を設定し、「設定を保存」
+4. 探索モードと探索時間を設定し、「設定を保存」
 6. 「自動探索モード」のトグルをオンにする。探索が止まっていれば `searchdefend` が自動で送られる
 
 止めるときはトグルをオフにします。YixinBoard 側を手動で操作した場合も自動探索モードは自動的にオフになります。
@@ -125,6 +125,7 @@ It reads YixinBoard's debug log (`debuglog.txt`) to see the search state, and se
 - **Log based** — reads `debuglog.txt` directly instead of recognising the board image, so the judgement is exact
 - **Two search modes** — "with nbest" alternates defend search (`searchdefend`) and nbest search (`nbest`); "defend only" uses `searchdefend` for both sides
 - **Automatic operations driven by proven results** — undo two moves when every move is `-M`, undo the opponent's last move when `+M` appears, play the only surviving move, answer a four without searching
+- **Automatic input-box detection** — finds YixinBoard's command box from the window image, so no calibration is needed; follows the window across moves and monitors with different DPI
 - **Safety** — command acknowledgement / completion checks and resend, double checks before `putpos`, undo-overshoot detection, manual-operation detection (turns automatic search off)
 - **Friendly to multitasking** — waits for mouse/keyboard to go idle before sending (up to 10 s) and shows a ripple around the pointer 3 s before a command (toggle, color and lead time are configurable)
 - **GUI** — search-time settings, on/off toggle, state and log view, Japanese/English
@@ -141,9 +142,10 @@ It reads YixinBoard's debug log (`debuglog.txt`) to see the search state, and se
 1. With YixinBoard closed, open `settings.txt` and change the `;record debug log` value from `0` to `1`
 2. Create a `RAS` folder directly under the YixinBoard folder and put `RAS.exe` and `monitor_config.json` there (from source: put the `src` folder there and run `python ras.py`)
 3. Start YixinBoard, then start `RAS.exe`
-4. First time only: press **Calibrate input box** and, within 5 seconds, move the mouse over YixinBoard's command box (the text box under the log). Recalibrate if you resize the window
-5. Choose the search mode and times, press **Save settings**
-6. Turn on **Automatic search**. If no search is running, `searchdefend` is sent automatically
+4. Choose the search mode and times, press **Save settings**
+5. Turn on **Automatic search**. If no search is running, `searchdefend` is sent automatically
+
+The command box is located automatically from the window image, so **no calibration is needed**. It follows the window when you move it, including to a monitor with a different resolution or scaling. Use **Calibrate input box (fallback)** only if detection fails.
 
 Turn the toggle off to stop. Any manual command in YixinBoard also turns automatic search off.
 

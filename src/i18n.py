@@ -107,7 +107,7 @@ STRINGS = {
     "gui_mode_defend": ("nbest探索なし", "Defend only"),
     "gui_language": ("言語", "Language"),
     "gui_save": ("設定を保存", "Save settings"),
-    "gui_calibrate": ("入力欄を校正", "Calibrate input box"),
+    "gui_calibrate": ("入力欄を校正（予備）", "Calibrate input box (fallback)"),
     "gui_truncate": ("ログを切り詰め", "Truncate log"),
     "gui_state": ("状態", "State"),
     "gui_remain": ("残り時間", "Time left"),
@@ -135,7 +135,8 @@ STRINGS = {
     "gui_mode_locked": ("自動探索モードをオフにしてから切り替えてください。", "Turn off automatic search before switching."),
     "gui_calib_locked": ("自動探索モードをオフにしてから校正してください。", "Turn off automatic search before calibrating."),
     "gui_calib_title": ("校正", "Calibration"),
-    "gui_calib_msg": ("OK を押してから 5 秒以内に、マウスカーソルを Rapfi のコマンド入力欄の上に置いてください。", "After pressing OK, move the mouse over Rapfi's command input box within 5 seconds."),
+    "gui_calib_msg": ("通常は入力欄を自動検出するため校正は不要です。自動検出できない場合のみ使ってください。\nOK を押してから 5 秒以内に、マウスカーソルを Rapfi のコマンド入力欄の上に置いてください。",
+                      "The input box is detected automatically, so calibration is normally unnecessary; use it only if detection fails.\nAfter pressing OK, move the mouse over Rapfi's command input box within 5 seconds."),
     "gui_calib_count": ("校正: {i}...", "Calibration: {i}..."),
     "gui_calib_outside": ("マウスが Yixin のウィンドウ外にあります。やり直してください。", "Mouse is outside the Yixin window. Try again."),
     "gui_calib_saved": ("校正を保存しました: 相対位置=({x}, {y}) ウィンドウ={w}x{h}", "Calibration saved: offset=({x}, {y}) window={w}x{h}"),
@@ -169,6 +170,10 @@ STRINGS = {
     "gui_ripple_test": ("試す", "Test"),
     "d_ripple": ("送信前にマウスポインタから波紋を出して知らせる。色の四角をクリックで変更", "Show ripples from the mouse pointer before sending. Click the swatch to change the color"),
     "gui_ripple_fail": ("波紋表示に失敗: {err}", "Ripple overlay failed: {err}"),
+    "gui_detect_ok": ("コマンド入力欄を自動検出しました（ウィンドウ相対 {box}）。ウィンドウを動かしても追従します", "Command input box detected automatically (window-relative {box}); it follows the window"),
+    "gui_detect_fallback": ("入力欄を自動検出できなかったため、校正値から位置を推定します", "Could not detect the input box; falling back to the calibrated position"),
+    "gui_detect_none": ("入力欄を自動検出できず、校正値もありません。Yixin を前面にして「入力欄を校正」を実行してください。", "Could not detect the input box and there is no calibration. Bring Yixin to the front and run 'Calibrate input box'."),
+    "gui_detect_fail": ("入力欄の自動検出でエラー: {err}", "Input box detection failed: {err}"),
 }
 
 

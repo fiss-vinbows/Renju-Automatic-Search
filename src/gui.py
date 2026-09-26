@@ -210,12 +210,8 @@ class RippleOverlay:
 
 
 def enable_dpi_awareness():
-    """高DPI環境でぼやけないよう、プロセスを DPI 対応にする（Windows 8.1 以降）。"""
-    try:
-        import ctypes
-        ctypes.windll.shcore.SetProcessDpiAwareness(1)
-    except Exception:
-        pass
+    """高DPI環境でぼやけないよう、プロセスを DPI 対応にする（sender と同じ「モニタ単位」に揃える）。"""
+    sender.enable_dpi_awareness()
 
 
 class App(tk.Tk):
@@ -487,10 +483,26 @@ class App(tk.Tk):
             messagebox.showerror(tr("gui_err_sender"), tr("gui_err_sender_msg", err=e))
             self.toggle.set(False)
             return
-        if not sender.find_yixin_window():
+        win = sender.find_yixin_window()
+        if not win:
             messagebox.showerror(tr("gui_err_noyixin"), tr("gui_err_noyixin_msg"))
             self.toggle.set(False)
             return
+        # 入力欄の位置を自動検出しておく（ウィンドウを動かしても追従するため校正は不要）
+        try:
+            sender.bring_to_front(win[0])
+            buf, bw, bh = sender.capture_window(win[0])
+            box = sender.find_input_box(buf, bw, bh)
+            if box:
+                self._append(tr("gui_detect_ok", box=f"{box[0]},{box[1]}-{box[2]},{box[3]}"), "branch")
+            elif snd.cfg:
+                self._append(tr("gui_detect_fallback"), "warn")
+            else:
+                messagebox.showerror(tr("gui_err_sender"), tr("gui_detect_none"))
+                self.toggle.set(False)
+                return
+        except Exception as e:
+            self._append(tr("gui_detect_fail", err=e), "warn")
         # ログが大きいと読み取りが遅れるため、100MB を超えていれば自動で切り詰める（Yixin 起動中でも安全）
         try:
             size = os.path.getsize(DEFAULT_LOG)
