@@ -39,5 +39,7 @@
  "idle_wait_seconds": 1.0,
  "_idle_wait_seconds": "マウス・キーボードがこの秒数止まってから送信する",
  "idle_wait_max_seconds": 10,
- "_idle_wait_max_seconds": "静止待ちの上限秒数。超えたら送信する"
+ "_idle_wait_max_seconds": "静止待ちの上限秒数。超えたら送信する",
+ "win_eval_threshold": 0,
+ "_win_eval_threshold": "整数EVALがこの値以上の候補手を +M と同様に勝ちとみなす（安定確認あり）。0 = 無効"
 }

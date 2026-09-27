@@ -31,7 +31,7 @@ def load_monitor_config():
                 "undo_offset_branch4": None, "poll_seconds": 0.2, "status_interval_seconds": 30,
                 "search_mode": "nbest", "defend_mode_seconds": 3600, "language": "ja", "auto_start_search": True,
                 "ripple_notify": True, "ripple_color": "#63e6be", "ripple_lead_seconds": 3,
-                "idle_wait_seconds": 1.0, "idle_wait_max_seconds": 10}
+                "idle_wait_seconds": 1.0, "idle_wait_max_seconds": 10, "win_eval_threshold": 0}
     if os.path.exists(CONFIG_PATH):
         with open(CONFIG_PATH, encoding="utf-8") as f:
             for k, v in json.load(f).items():
@@ -68,6 +68,8 @@ class Monitor:
         self.sender = sender                          # None なら送信しない（人が打つ）
         self.op_timeout = cfg["op_timeout_seconds"]   # 1ステップの完了確認を待つ上限秒数
         self.nbest = cfg["nbest"]
+        self.win_eval = float(cfg.get("win_eval_threshold") or 0)  # 0 なら無効。整数EVALがこの値以上の候補も勝ちとみなす
+        self.eval_win_rounds = 0              # 「評価値による勝ち」の安定確認周回数
         self.step_sent_at = None              # 現在ステップのコマンド送信時刻
         self.sent_cmd = None                  # 受付確認（EXECUTE_COMMAND）待ちのコマンド
         self.resent = False                   # 現在ステップで再送済みか
@@ -112,6 +114,7 @@ class Monitor:
         self.state_since = time.monotonic()
         self.rounds_ok = 0
         self.forced_rounds = 0
+        self.eval_win_rounds = 0
         self.hold_logged = False
         self.log(tr("kind_transition"), tr("msg_transition", state=state, reason=reason))
 
@@ -137,6 +140,12 @@ class Monitor:
             row = int(r["move"][1:])
             return (r["eval"]["cp"], row, -col)
         return max(ints, key=key)
+
+    def eval_wins(self, ints):
+        """整数EVALが勝ち判定の閾値以上の候補手（閾値 0 なら常に空）。"""
+        if self.win_eval <= 0:
+            return []
+        return [r for r in ints if r["eval"]["cp"] >= self.win_eval]
 
     def summary_text(self):
         ints, losses, wins, unknown = self.classify()
@@ -345,6 +354,7 @@ class Monitor:
                 # nbest側が時間内に勝ち筋を見つけられない → 停止時にエンジンが打つ手を採用し、defend探索側へ
                 self.plan_stop_undo_defend("timeout_nbest", tr("title_timeout_nbest"), self.cfg["undo_offset_branch4"])
                 return
+            wins = wins or self.eval_wins(ints)
             if wins:
                 # 時間切れの時点で勝ち筋がある＝直前の相手の手が悪手。戻して相手側の探索をやり直す
                 self.log(tr("kind_win_found"), tr("msg_win_found", side=side, wins=" ".join(f"{r['move']}({r['eval_text']})" for r in wins)))
@@ -380,6 +390,16 @@ class Monitor:
                 self.plan_stop_undo_defend("win_found", tr("title_win_found"), self.cfg["undo_offset_branch3"],
                                            search="defend" if is_nbest_side else "nbest")
             return
+
+        # 評価値が閾値以上（win_eval_threshold）→ +M と同様に勝ちとみなす。読み切りではないので安定確認を行う
+        ewins = self.eval_wins(ints)
+        if ewins:
+            if self.stable_ok(rec, "eval_win_rounds"):
+                self.log(tr("kind_win_found"), tr("msg_win_found", side=side, wins=" ".join(f"{r['move']}({r['eval_text']})" for r in ewins)))
+                self.plan_stop_undo_defend("win_found", tr("title_win_found"), self.cfg["undo_offset_branch3"],
+                                           search="defend" if is_nbest_side else "nbest")
+            return
+        self.eval_win_rounds = 0
 
         # 最善手以外が全て負け → 最善手を着手して次の手から探索
         non_loss = ints
