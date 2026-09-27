@@ -48,6 +48,7 @@ YixinBoard が出力するデバッグログ（`debuglog.txt`）を読み取っ�
 | defend探索側 | `+M` を検出（直前の nbest 側の手が悪手） | 停止 → 1手戻す → `nbest` | nbest探索側 |
 | nbest探索側 | `+M` を検出（直前の defend 側の手が悪手） | 停止 → 1手戻す → `searchdefend` | defend探索側 |
 | nbest探索側 | 探索時間が終了 | 停止（エンジンの手が打たれる）→ `searchdefend` | defend探索側 |
+| どちらでも | 評価値が `win_eval_threshold` 以上（有効時、安定確認後） | `+M` 検出と同じ | `+M` 検出と同じ |
 | どちらでも | 最善手以外がすべて `-M` | 停止 → 最善手を着手 → 相手側の探索 | 相手側 |
 | どちらでも | 相手の四を止めるしかない | 探索せず止め手を着手 | 手番に応じて |
 
@@ -70,6 +71,7 @@ GUI から編集できます。主な項目：
 | `auto_start_search` | true | オン時に探索が止まっていれば `searchdefend` を送る |
 | `ripple_notify` / `ripple_color` / `ripple_lead_seconds` | true / `#63e6be` / 3 | 送信予告の波紋（オン／オフ・色・何秒前に出すか） |
 | `idle_wait_seconds` / `idle_wait_max_seconds` | 1.0 / 10 | 送信前に人の操作が止まるのを待つ秒数と、その上限 |
+| `win_eval_threshold` | 0 | 整数の評価値がこの値以上の候補手を `+M` と同様に勝ちとみなす（安定確認あり）。0 で無効 |
 
 ### 制限事項
 
@@ -94,6 +96,8 @@ build.bat
 ```
 
 `dist\RAS\RAS.exe` が生成されます。
+
+GitHub Actions でも自動ビルドされます。main への push ごとに Actions の実行結果（Artifacts の `RAS`）から exe をダウンロードでき、`v*` タグを push すると Releases に `RAS.zip` が公開されます。
 
 ### 構成
 
@@ -158,6 +162,7 @@ Turn the toggle off to stop. Any manual command in YixinBoard also turns automat
 | defend side | `+M` found (nbest side's last move was a blunder) | stop → undo one → `nbest` | nbest side |
 | nbest side | `+M` found (defend side's last move was a blunder) | stop → undo one → `searchdefend` | defend side |
 | nbest side | time is up | stop (engine's move is played) → `searchdefend` | defend side |
+| either | EVAL ≥ `win_eval_threshold` (if enabled, after stability check) | same as `+M` found | same as `+M` found |
 | either | only one move survives | stop → play it → other side's search | other side |
 | either | must block a four | play the block without searching | by turn |
 
@@ -165,7 +170,7 @@ In "defend only" mode both sides use `searchdefend` with a single time setting.
 
 ### Settings (`monitor_config.json`)
 
-Editable from the GUI. Main keys: `a_limit_seconds`, `b_limit_seconds`, `defend_mode_seconds`, `stable_rounds`, `stable_seconds`, `op_timeout_seconds`, `nbest`, `search_mode` (`nbest`/`defend`), `language` (`ja`/`en`), `auto_start_search`, `ripple_notify` / `ripple_color` / `ripple_lead_seconds` (send warning), `idle_wait_seconds` / `idle_wait_max_seconds` (wait for user input to stop).
+Editable from the GUI. Main keys: `a_limit_seconds`, `b_limit_seconds`, `defend_mode_seconds`, `stable_rounds`, `stable_seconds`, `op_timeout_seconds`, `nbest`, `search_mode` (`nbest`/`defend`), `language` (`ja`/`en`), `auto_start_search`, `ripple_notify` / `ripple_color` / `ripple_lead_seconds` (send warning), `idle_wait_seconds` / `idle_wait_max_seconds` (wait for user input to stop), `win_eval_threshold` (treat an integer EVAL at or above this as a win like `+M`; 0 = off).
 
 ### Limitations
 
@@ -183,6 +188,8 @@ python ras.py --console  # console mode
 ```
 
 Build the exe with PyInstaller: `pip install pyinstaller` then `build.bat` → `dist\RAS\RAS.exe`.
+
+GitHub Actions also builds it: download the `RAS` artifact from any run on main, or push a `v*` tag to publish `RAS.zip` on Releases.
 
 ### License
 
