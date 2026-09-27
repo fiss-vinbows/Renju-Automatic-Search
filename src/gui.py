@@ -52,6 +52,7 @@ SETTING_FIELDS = [
     ("nbest", "f_nbest", "d_nbest", "nbest"),
     ("ripple_lead_seconds", "f_ripple_lead", "d_ripple_lead", None),
     ("idle_wait_seconds", "f_idle_wait", "d_idle_wait", None),
+    ("win_eval_threshold", "f_win_eval", "d_win_eval", None),
 ]
 MODES = [("nbest", "gui_mode_nbest"), ("defend", "gui_mode_defend")]
 LANGS = [("ja", "日本語"), ("en", "English")]
@@ -431,7 +432,11 @@ class App(tk.Tk):
                 v = float(raw)
                 if key in ("stable_rounds", "nbest"):
                     v = int(v)
-                if v <= 0:
+                if key == "win_eval_threshold":
+                    v = int(v)
+                    if v < 0:
+                        raise ValueError
+                elif v <= 0:
                     raise ValueError
             except ValueError:
                 raise ValueError(tr("gui_err_value", label=label, raw=raw))

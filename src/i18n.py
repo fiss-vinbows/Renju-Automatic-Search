@@ -165,6 +165,8 @@ STRINGS = {
     "d_ripple_lead": ("コマンド送信のこの秒数前に波紋で知らせ、その間は送信を待つ", "Ripple warning this many seconds before a command is sent; sending waits until then"),
     "f_idle_wait": ("操作の静止待ち（秒）", "Input idle wait (s)"),
     "d_idle_wait": ("マウス・キーボードがこの秒数止まってから送信する（最大10秒待つ）", "Send only after mouse/keyboard have been idle this long (waits up to 10 s)"),
+    "f_win_eval": ("勝ち判定 評価値", "Win eval threshold"),
+    "d_win_eval": ("整数EVALがこの値以上なら +M と同様に勝ちとみなして進む（安定確認あり）。0 で無効", "Treat an integer EVAL at or above this as a win like +M (with stability check). 0 = off"),
     "gui_ripple": ("波紋通知", "Ripple warning"),
     "gui_ripple_color": ("波紋の色", "Ripple color"),
     "gui_ripple_test": ("試す", "Test"),
